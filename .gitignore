@@ -1,0 +1,55 @@
+# Secrets and local configuration
+.env
+.env.*
+mailbox.txt
+mailbox*.txt
+.secret
+credentials.json
+cookies.json
+cookie.json
+account.json
+result.json
+*.result.json
+mailboxes.json
+
+# Runtime data
+data/*.sqlite*
+data/*.db
+data/secrets.json
+data/exports/
+data/config.json
+data/profiles/
+
+# Raw evidence and captures
+*.har
+*.pcap
+*.pcapng
+*.flow
+*.bin
+*.log
+
+# Generated trees
+raw/
+captures/
+runtime/
+artifacts/
+browser-profiles/
+profile-*/
+temp/
+
+# Local runtimes and caches
+.venv/
+venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+.cache/
+dist/
+build/
+*.egg-info/
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
