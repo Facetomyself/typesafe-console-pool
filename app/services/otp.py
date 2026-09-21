@@ -110,6 +110,21 @@ def folder_codes(client: imaplib.IMAP4_SSL, folder: str, after: datetime, limit:
     return found
 
 
+def probe_mailbox(email: str, client_id: str, refresh_token: str) -> dict[str, str]:
+    token = refresh_access_token(client_id, refresh_token)
+    client = imap_login(email, token)
+    try:
+        status, _ = client.select("INBOX", readonly=True)
+        if status != "OK":
+            raise RuntimeError("imap INBOX select failed")
+        return {"ok": "true", "folder": "INBOX"}
+    finally:
+        try:
+            client.logout()
+        except Exception:
+            pass
+
+
 def poll_otp(email: str, client_id: str, refresh_token: str, after_iso: str, timeout: int = 180, interval: int = 5) -> str:
     after = datetime.fromisoformat(after_iso.replace("Z", "+00:00"))
     deadline = time.time() + timeout

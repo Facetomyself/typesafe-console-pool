@@ -63,3 +63,13 @@ class Conflict(PoolError):
 class Paused(PoolError):
     code = "paused"
     status_code = 409
+
+
+class MailboxUnhealthy(PoolError):
+    code = "mailbox_unhealthy"
+    status_code = 409
+
+
+class RateLimited(PoolError):
+    code = "rate_limited"
+    status_code = 429

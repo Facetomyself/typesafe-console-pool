@@ -5,16 +5,19 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Request
 
 from app import __version__
-from app.errors import PoolError
 from app.schemas import (
     CheckoutRequest,
     ControlRequest,
     Envelope,
+    KeepaliveDueRequest,
+    KeepaliveJobRequest,
     LeaseCreateRequest,
+    MailboxCheckRequest,
     MailboxImportRequest,
     MailboxPatchRequest,
     RegisterBatchRequest,
     RegisterJobRequest,
+    RiskPolicyPatchRequest,
 )
 from app.store import PoolStore
 
@@ -55,15 +58,58 @@ async def meta(request: Request):
     )
 
 
+@router.get("/v1/risk/policy", response_model=Envelope, tags=["risk"])
+async def get_risk_policy(request: Request):
+    return ok(await store(request).get_risk_policy())
+
+
+@router.patch("/v1/risk/policy", response_model=Envelope, tags=["risk"])
+async def patch_risk_policy(request: Request, body: RiskPolicyPatchRequest):
+    patch = body.model_dump(exclude_none=True)
+    return ok(await store(request).set_risk_policy(patch))
+
+
+@router.get("/v1/risk/events", response_model=Envelope, tags=["risk"])
+async def list_risk_events(
+    request: Request,
+    kind: str | None = Query(default=None),
+    mailbox_id: str | None = Query(default=None),
+    account_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    rows = await store(request).list_risk_events(
+        kind=kind,
+        mailbox_id=mailbox_id,
+        account_id=account_id,
+        limit=limit,
+    )
+    return ok({"events": rows, "count": len(rows)})
+
+
 @router.post("/v1/mailboxes/import", response_model=Envelope, tags=["mailboxes"])
 async def import_mailboxes(request: Request, body: MailboxImportRequest):
-    rows = await store(request).import_mailboxes(path=body.path, text=body.text)
+    rows = await store(request).import_mailboxes(path=body.path, text=body.text, source=body.source)
     return ok({"mailboxes": rows, "count": len(rows)})
 
 
 @router.get("/v1/mailboxes", response_model=Envelope, tags=["mailboxes"])
-async def list_mailboxes(request: Request, status: str | None = Query(default=None)):
-    return ok({"mailboxes": await store(request).list_mailboxes(status)})
+async def list_mailboxes(
+    request: Request,
+    status: str | None = Query(default=None),
+    health: str | None = Query(default=None),
+):
+    return ok({"mailboxes": await store(request).list_mailboxes(status, health)})
+
+
+@router.get("/v1/mailboxes/stats", response_model=Envelope, tags=["mailboxes"])
+async def mailbox_stats(request: Request):
+    return ok(await store(request).mailbox_stats())
+
+
+@router.post("/v1/mailboxes/check", response_model=Envelope, tags=["mailboxes"])
+async def check_mailboxes(request: Request, body: MailboxCheckRequest):
+    rows = await store(request).check_mailboxes(limit=body.limit)
+    return ok({"mailboxes": rows, "count": len(rows)})
 
 
 @router.get("/v1/mailboxes/{mailbox_id}", response_model=Envelope, tags=["mailboxes"])
@@ -73,7 +119,19 @@ async def get_mailbox(request: Request, mailbox_id: str):
 
 @router.patch("/v1/mailboxes/{mailbox_id}", response_model=Envelope, tags=["mailboxes"])
 async def patch_mailbox(request: Request, mailbox_id: str, body: MailboxPatchRequest):
-    return ok(await store(request).patch_mailbox(mailbox_id, body.status))
+    return ok(
+        await store(request).patch_mailbox(
+            mailbox_id,
+            status=body.status,
+            notes=body.notes,
+            clear_cooldown=body.clear_cooldown,
+        )
+    )
+
+
+@router.post("/v1/mailboxes/{mailbox_id}/check", response_model=Envelope, tags=["mailboxes"])
+async def check_mailbox(request: Request, mailbox_id: str):
+    return ok(await store(request).check_mailbox(mailbox_id))
 
 
 @router.get("/v1/proxy/status", response_model=Envelope, tags=["proxy"])
@@ -125,9 +183,26 @@ async def register_batch(request: Request, body: RegisterBatchRequest):
     return ok({"jobs": jobs, "count": len(jobs)})
 
 
+@router.post("/v1/jobs/keepalive", response_model=Envelope, tags=["jobs"])
+async def keepalive_job(request: Request, body: KeepaliveJobRequest):
+    return ok(await store(request).enqueue_keepalive(body.account_id, backend=body.backend))
+
+
+@router.post("/v1/jobs/keepalive/due", response_model=Envelope, tags=["jobs"])
+async def keepalive_due(request: Request, body: KeepaliveDueRequest | None = None):
+    payload = body or KeepaliveDueRequest()
+    jobs = await store(request).enqueue_keepalive_due(limit=payload.limit)
+    return ok({"jobs": jobs, "count": len(jobs)})
+
+
 @router.get("/v1/jobs", response_model=Envelope, tags=["jobs"])
-async def list_jobs(request: Request, status: str | None = Query(default=None), backend: str | None = Query(default=None)):
-    return ok({"jobs": await store(request).list_jobs(status=status, backend=backend)})
+async def list_jobs(
+    request: Request,
+    status: str | None = Query(default=None),
+    backend: str | None = Query(default=None),
+    type: str | None = Query(default=None, alias="type"),
+):
+    return ok({"jobs": await store(request).list_jobs(status=status, backend=backend, job_type=type)})
 
 
 @router.get("/v1/jobs/{job_id}", response_model=Envelope, tags=["jobs"])

@@ -17,9 +17,11 @@ class Envelope(StrictModel):
     error: dict[str, Any] | None = None
 
 
-MailboxStatus = Literal["ready", "in_use", "exhausted", "disabled"]
+MailboxStatus = Literal["ready", "in_use", "bound", "cooling", "disabled"]
+MailboxHealth = Literal["unknown", "ok", "cooling", "dead"]
 LeaseState = Literal["held", "released", "rotated", "failed"]
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "blocked"]
+JobType = Literal["register", "keepalive"]
 BackendName = Literal["automation", "protocol"]
 AccountStatus = Literal["registered", "leased", "disabled", "retired"]
 
@@ -27,10 +29,17 @@ AccountStatus = Literal["registered", "leased", "disabled", "retired"]
 class MailboxImportRequest(StrictModel):
     path: str | None = None
     text: str | None = None
+    source: str | None = Field(default=None, max_length=200)
 
 
 class MailboxPatchRequest(StrictModel):
-    status: Literal["ready", "disabled"]
+    status: Literal["ready", "disabled"] | None = None
+    notes: str | None = Field(default=None, max_length=500)
+    clear_cooldown: bool = False
+
+
+class MailboxCheckRequest(StrictModel):
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class MailboxOut(StrictModel):
@@ -38,6 +47,15 @@ class MailboxOut(StrictModel):
     email: str
     status: MailboxStatus
     imported_at: str
+    health: MailboxHealth = "unknown"
+    fail_count: int = 0
+    cooldown_until: str | None = None
+    last_checked_at: str | None = None
+    last_ok_at: str | None = None
+    last_error: str | None = None
+    notes: str = ""
+    source: str | None = None
+    bound_account_id: str | None = None
 
 
 class LeaseCreateRequest(StrictModel):
@@ -70,9 +88,29 @@ class RegisterBatchRequest(StrictModel):
     sticky_minutes: int | None = Field(default=None, ge=1, le=120)
 
 
+class KeepaliveJobRequest(StrictModel):
+    account_id: str
+    backend: BackendName | None = None
+
+
+class KeepaliveDueRequest(StrictModel):
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class RiskPolicyPatchRequest(StrictModel):
+    register_min_interval_seconds: int | None = Field(default=None, ge=0, le=86400)
+    register_daily_cap: int | None = Field(default=None, ge=1, le=1000)
+    mailbox_fail_cooldown_seconds: int | None = Field(default=None, ge=0, le=86400)
+    mailbox_max_fail: int | None = Field(default=None, ge=1, le=20)
+    keepalive_interval_hours: float | None = Field(default=None, ge=1, le=168)
+    keepalive_jitter_minutes: int | None = Field(default=None, ge=0, le=720)
+    sticky_minutes: int | None = Field(default=None, ge=1, le=120)
+    checkout_requires_healthy_mailbox: bool | None = None
+
+
 class JobOut(StrictModel):
     id: str
-    type: str
+    type: JobType
     mailbox_id: str | None
     email: str | None = None
     lease_id: str | None
@@ -82,6 +120,8 @@ class JobOut(StrictModel):
     error_message: str | None = None
     created_at: str
     finished_at: str | None = None
+    account_id: str | None = None
+    risk_snapshot: dict[str, Any] | None = None
     lease: LeaseOut | None = None
 
 
@@ -94,6 +134,11 @@ class AccountOut(StrictModel):
     console: str
     leased_to: str | None = None
     lease_expires_at: str | None = None
+    region: str | None = None
+    last_keepalive_at: str | None = None
+    keepalive_due_at: str | None = None
+    risk_score: int = 0
+    keep_notes: str = ""
 
 
 class CheckoutRequest(StrictModel):
@@ -112,5 +157,8 @@ class StatsOut(StrictModel):
     disabled: int
     retired: int
     mailboxes_ready: int
+    mailboxes_bound: int = 0
+    mailboxes_cooling: int = 0
     jobs_queued: int
     jobs_running: int
+    keepalive_due: int = 0

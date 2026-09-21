@@ -140,3 +140,116 @@ async def test_checkout_export_release(client):
     assert payload["email"] == "alice@outlook.com"
     assert payload["console"] == "https://console.typesafe.ai/"
     assert Path(paths[0]).suffix == ".json"
+
+    mailbox = (await http.get("/v1/mailboxes")).json()["data"]["mailboxes"][0]
+    assert mailbox["status"] == "bound"
+    assert mailbox["bound_account_id"] == account_id
+
+
+@pytest.mark.asyncio
+async def test_mailbox_reimport_keeps_bound_and_updates_source(client):
+    http, _app = client
+    first = await _import(http, MAILBOX_LINE)
+    mailbox_id = first["mailboxes"][0]["id"]
+    assert first["mailboxes"][0]["health"] == "unknown"
+    assert first["mailboxes"][0]["source"] == "inline"
+
+    again = await http.post(
+        "/v1/mailboxes/import",
+        json={"text": MAILBOX_LINE, "source": "mailbox.txt"},
+    )
+    assert again.status_code == 200
+    row = again.json()["data"]["mailboxes"][0]
+    assert row["id"] == mailbox_id
+    assert row["status"] == "ready"
+    assert row["source"] == "mailbox.txt"
+    assert row["health"] == "unknown"
+
+    stats = await http.get("/v1/mailboxes/stats")
+    assert stats.json()["data"]["ready"] == 1
+    assert stats.json()["data"]["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_register_cadence_and_risk_policy(client):
+    http, _app = client
+    await _import(http)
+    policy = await http.get("/v1/risk/policy")
+    assert policy.status_code == 200
+    assert policy.json()["data"]["policy"]["reject_rand"] is True
+    assert policy.json()["data"]["policy"]["register_min_interval_seconds"] == 180
+
+    patched = await http.patch(
+        "/v1/risk/policy",
+        json={"register_min_interval_seconds": 3600, "register_daily_cap": 1},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["data"]["policy"]["register_daily_cap"] == 1
+
+    first = await http.post("/v1/jobs/register", json={"region": "US", "backend": "protocol"})
+    assert first.status_code == 200
+    second = await http.post("/v1/jobs/register", json={"region": "US", "backend": "protocol"})
+    assert second.status_code == 429
+    assert second.json()["error"]["code"] == "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_mailbox_check_and_clear_cooldown(client, monkeypatch):
+    http, _app = client
+    data = await _import(http)
+    mailbox_id = data["mailboxes"][0]["id"]
+
+    def boom(_email, _client_id, _refresh_token):
+        raise RuntimeError("token refresh failed: invalid_grant")
+
+    monkeypatch.setattr("app.store.probe_mailbox", boom)
+    checked = await http.post(f"/v1/mailboxes/{mailbox_id}/check")
+    assert checked.status_code == 200
+    row = checked.json()["data"]
+    assert row["health"] == "dead"
+    assert row["status"] == "disabled"
+    assert row["fail_count"] == 1
+
+    restored = await http.patch(
+        f"/v1/mailboxes/{mailbox_id}",
+        json={"status": "ready", "clear_cooldown": True, "notes": "rechecked"},
+    )
+    assert restored.json()["data"]["status"] == "ready"
+    assert restored.json()["data"]["notes"] == "rechecked"
+    assert restored.json()["data"]["cooldown_until"] is None
+
+    def ok_probe(_email, _client_id, _refresh_token):
+        return {"ok": "true", "folder": "INBOX"}
+
+    monkeypatch.setattr("app.store.probe_mailbox", ok_probe)
+    healthy = await http.post(f"/v1/mailboxes/{mailbox_id}/check")
+    assert healthy.json()["data"]["health"] == "ok"
+    events = await http.get("/v1/risk/events", params={"kind": "mailbox_check"})
+    assert events.json()["data"]["count"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_keepalive_enqueue_uses_bound_mailbox(client):
+    http, application = client
+    await _import(http)
+    store = application.state.store
+    await store.set_risk_policy({"register_min_interval_seconds": 0})
+    job = await store.enqueue_register(
+        mailbox_id=None,
+        region="US",
+        backend="automation",
+        sticky_minutes=30,
+    )
+    await store.finish_job_success(
+        job["id"],
+        RegisterResult(email="alice@outlook.com", status="registered", registered_at="2026-09-21T00:00:00Z"),
+    )
+    account = (await http.get("/v1/accounts")).json()["data"]["accounts"][0]
+    keep = await http.post("/v1/jobs/keepalive", json={"account_id": account["id"], "backend": "protocol"})
+    assert keep.status_code == 200
+    payload = keep.json()["data"]
+    assert payload["type"] == "keepalive"
+    assert payload["account_id"] == account["id"]
+    assert payload["status"] == "queued"
+    listed = await http.get("/v1/jobs", params={"type": "keepalive"})
+    assert listed.json()["data"]["jobs"][0]["id"] == payload["id"]

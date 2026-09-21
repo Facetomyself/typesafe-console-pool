@@ -14,3 +14,9 @@ class ProtocolBackend:
         raise RegisterBlocked(
             "HTTP registration is still recon: request shape is not frozen in typesafe-console-protocol"
         )
+
+    def keepalive(self, mailbox: dict[str, str], proxy_url: str, job_id: str, account_id: str) -> RegisterResult:
+        del mailbox, proxy_url, job_id, account_id
+        raise RegisterBlocked(
+            "HTTP keepalive is still recon: request shape is not frozen in typesafe-console-protocol"
+        )

@@ -11,7 +11,16 @@ CREATE TABLE IF NOT EXISTS mailboxes (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   status TEXT NOT NULL,
-  imported_at TEXT NOT NULL
+  imported_at TEXT NOT NULL,
+  health TEXT NOT NULL DEFAULT 'unknown',
+  fail_count INTEGER NOT NULL DEFAULT 0,
+  cooldown_until TEXT,
+  last_checked_at TEXT,
+  last_ok_at TEXT,
+  last_error TEXT,
+  notes TEXT NOT NULL DEFAULT '',
+  source TEXT,
+  bound_account_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS proxy_leases (
@@ -35,7 +44,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   error_class TEXT,
   error_message TEXT,
   created_at TEXT NOT NULL,
-  finished_at TEXT
+  finished_at TEXT,
+  account_id TEXT,
+  risk_snapshot TEXT
 );
 
 CREATE TABLE IF NOT EXISTS accounts (
@@ -46,7 +57,12 @@ CREATE TABLE IF NOT EXISTS accounts (
   registered_at TEXT NOT NULL,
   console TEXT NOT NULL,
   leased_to TEXT,
-  lease_expires_at TEXT
+  lease_expires_at TEXT,
+  region TEXT,
+  last_keepalive_at TEXT,
+  keepalive_due_at TEXT,
+  risk_score INTEGER NOT NULL DEFAULT 0,
+  keep_notes TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS controls (
@@ -55,7 +71,50 @@ CREATE TABLE IF NOT EXISTS controls (
   reason TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS risk_policy (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS risk_events (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  mailbox_id TEXT,
+  account_id TEXT,
+  job_id TEXT,
+  message TEXT NOT NULL,
+  detail TEXT
+);
 """
+
+COLUMN_MIGRATIONS = {
+    "mailboxes": {
+        "health": "TEXT NOT NULL DEFAULT 'unknown'",
+        "fail_count": "INTEGER NOT NULL DEFAULT 0",
+        "cooldown_until": "TEXT",
+        "last_checked_at": "TEXT",
+        "last_ok_at": "TEXT",
+        "last_error": "TEXT",
+        "notes": "TEXT NOT NULL DEFAULT ''",
+        "source": "TEXT",
+        "bound_account_id": "TEXT",
+    },
+    "jobs": {
+        "account_id": "TEXT",
+        "risk_snapshot": "TEXT",
+    },
+    "accounts": {
+        "region": "TEXT",
+        "last_keepalive_at": "TEXT",
+        "keepalive_due_at": "TEXT",
+        "risk_score": "INTEGER NOT NULL DEFAULT 0",
+        "keep_notes": "TEXT NOT NULL DEFAULT ''",
+    },
+}
 
 
 class Database:
@@ -70,7 +129,16 @@ class Database:
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.execute("PRAGMA foreign_keys=ON")
         await self._conn.executescript(SCHEMA)
+        await self._migrate_columns()
         await self._conn.commit()
+
+    async def _migrate_columns(self) -> None:
+        for table, columns in COLUMN_MIGRATIONS.items():
+            cursor = await self.conn.execute(f"PRAGMA table_info({table})")
+            existing = {row[1] for row in await cursor.fetchall()}
+            for name, ddl in columns.items():
+                if name not in existing:
+                    await self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
     async def close(self) -> None:
         if self._conn is not None:

@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from app.backends.automation import AutomationBackend
+from app.backends.keepalive import KeepaliveBackend
 from app.backends.protocol import ProtocolBackend
 from app.config import Settings
 from app.store import PoolStore
@@ -23,6 +24,7 @@ class JobQueue:
             "automation": AutomationBackend(settings),
             "protocol": ProtocolBackend(),
         }
+        self.keepalive = KeepaliveBackend(settings)
 
     async def start(self) -> None:
         self._stop.clear()
@@ -64,7 +66,13 @@ class JobQueue:
             sticky_minutes=lease_row["sticky_minutes"],
         )
         try:
-            result = await asyncio.to_thread(backend.register, mailbox, lease.url, job["id"])
+            if job["type"] == "keepalive":
+                keeper = backend if job["backend"] == "protocol" else self.keepalive
+                result = await asyncio.to_thread(
+                    keeper.keepalive, mailbox, lease.url, job["id"], job["account_id"]
+                )
+            else:
+                result = await asyncio.to_thread(backend.register, mailbox, lease.url, job["id"])
             await self.store.finish_job_success(job["id"], result)
         except Exception as exc:
             log.exception("job %s failed", job["id"])
