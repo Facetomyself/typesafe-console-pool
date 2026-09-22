@@ -101,8 +101,14 @@ while [[ "$(live_count)" -lt "$TARGET" || ${#WORKERS[@]} -gt 0 ]]; do
   fi
 done
 
-echo "[pool] registered $(live_count) accounts; entering keepalive loop"
+echo "[pool] registered $(live_count) accounts"
 
+if [[ "$KEEPALIVE_SECONDS" -le 0 ]]; then
+  echo "[pool] skip keepalive; stop live=$(live_count) $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  exit 0
+fi
+
+echo "[pool] entering keepalive loop"
 while true; do
   mapfile -t indexes < <(sort -n -u "$LIVE_LIST")
   kept=0
@@ -116,8 +122,5 @@ while true; do
     sleep 5
   done
   echo "[pool] keepalive pass kept=$kept/$(live_count) $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  if [[ "$KEEPALIVE_SECONDS" -le 0 ]]; then
-    break
-  fi
   sleep "$KEEPALIVE_SECONDS"
 done
