@@ -25,7 +25,8 @@ def make_settings(tmp_path: Path, **overrides) -> Settings:
         default_region="US",
         sticky_minutes=30,
         queue_workers=1,
-        default_backend="automation",
+        default_backend="protocol",
+        protocol_root=tmp_path / "protocol",
         sid_prefix="ts",
     )
     payload.update(overrides)

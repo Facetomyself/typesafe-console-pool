@@ -10,6 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PROXY_ENV = Path(r"D:\reverse_ENV\storage\proxy-usage\.env")
 DEFAULT_FIREFOX = Path(r"D:\reverse_ENV\tools\ruyipage\runtimes\151-proxy\firefox\firefox.exe")
+DEFAULT_PROTOCOL_ROOT = PROJECT_ROOT.parent / "typesafe-console-protocol"
 
 
 def _clean(value: str) -> str:
@@ -52,7 +53,8 @@ class Settings:
     profiles_dir: Path = PROJECT_ROOT / "data" / "profiles"
     proxy_env_path: Path = DEFAULT_PROXY_ENV
     firefox_path: Path = DEFAULT_FIREFOX
-    default_backend: str = "automation"
+    protocol_root: Path = DEFAULT_PROTOCOL_ROOT
+    default_backend: str = "protocol"
     default_region: str = "US"
     sticky_minutes: int = 30
     queue_workers: int = 1
@@ -103,7 +105,8 @@ class Settings:
             profiles_dir=root / "profiles",
             proxy_env_path=proxy_env_path,
             firefox_path=Path(str(local.get("firefox_path") or DEFAULT_FIREFOX)),
-            default_backend=str(local.get("default_backend") or "automation"),
+            protocol_root=Path(str(local.get("protocol_root") or DEFAULT_PROTOCOL_ROOT)),
+            default_backend=str(local.get("default_backend") or "protocol"),
             default_region=region,
             sticky_minutes=sticky,
             queue_workers=int(local.get("queue_workers") or 1),

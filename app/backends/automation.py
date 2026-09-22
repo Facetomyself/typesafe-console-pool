@@ -70,6 +70,11 @@ class AutomationBackend:
             except Exception:
                 pass
 
+    def keepalive(self, mailbox: dict[str, str], proxy_url: str, job_id: str, account_id: str) -> RegisterResult:
+        from app.backends.keepalive import KeepaliveBackend
+
+        return KeepaliveBackend(self.settings).keepalive(mailbox, proxy_url, job_id, account_id)
+
 
 def _logged_in(url: str) -> bool:
     return "console.typesafe.ai" in url and "/login" not in url

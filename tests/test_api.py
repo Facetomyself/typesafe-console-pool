@@ -28,7 +28,8 @@ def make_settings(tmp_path: Path, **overrides) -> Settings:
         default_region="US",
         sticky_minutes=30,
         queue_workers=1,
-        default_backend="automation",
+        default_backend="protocol",
+        protocol_root=tmp_path / "protocol",
         sid_prefix="ts",
     )
     payload.update(overrides)
@@ -74,9 +75,15 @@ async def test_import_list_and_exact_one_of(client):
 
 
 @pytest.mark.asyncio
-async def test_protocol_register_blocks(tmp_path: Path):
+async def test_protocol_register_runs_backend(tmp_path: Path, monkeypatch):
     settings = make_settings(tmp_path)
     application = create_app(settings, start_worker=True)
+
+    def fake_register(self, mailbox, proxy_url, job_id):
+        del self, proxy_url, job_id
+        return RegisterResult(email=mailbox["email"], status="registered", registered_at="2026-09-22T00:00:00Z")
+
+    monkeypatch.setattr("app.backends.protocol.ProtocolBackend.register", fake_register)
     async with application.router.lifespan_context(application):
         transport = ASGITransport(app=application)
         async with AsyncClient(transport=transport, base_url="http://test") as http:
@@ -88,12 +95,13 @@ async def test_protocol_register_blocks(tmp_path: Path):
             for _ in range(40):
                 shown = await http.get(f"/v1/jobs/{job_id}")
                 status = shown.json()["data"]["status"]
-                if status in {"blocked", "failed"}:
+                if status in {"succeeded", "blocked", "failed"}:
                     break
                 await asyncio.sleep(0.05)
             assert shown is not None
-            assert shown.json()["data"]["status"] == "blocked"
-            assert shown.json()["data"]["error_class"] == "register_blocked"
+            assert shown.json()["data"]["status"] == "succeeded"
+            accounts = await http.get("/v1/accounts")
+            assert accounts.json()["data"]["accounts"][0]["email"] == "alice@outlook.com"
 
 
 @pytest.mark.asyncio

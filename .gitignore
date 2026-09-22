@@ -19,6 +19,11 @@ data/secrets.json
 data/exports/
 data/config.json
 data/profiles/
+data/sessions/
+data/accounts/
+data/live.list
+data/failed.list
+logs/
 
 # Raw evidence and captures
 *.har

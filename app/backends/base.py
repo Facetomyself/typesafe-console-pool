@@ -24,3 +24,8 @@ class RegisterBackend(Protocol):
 
     def register(self, mailbox: dict[str, str], proxy_url: str, job_id: str) -> RegisterResult:
         ...
+
+    def keepalive(
+        self, mailbox: dict[str, str], proxy_url: str, job_id: str, account_id: str
+    ) -> RegisterResult:
+        ...

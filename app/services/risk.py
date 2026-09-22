@@ -25,9 +25,9 @@ DEFAULT_POLICY: dict[str, Any] = {
     "reuse_same_region": True,
     "checkout_requires_healthy_mailbox": True,
     "dimensions": {
-        "environment": "ruyipage Firefox 151 per-job profile; do not mix RuyiTrace 3.3 evidence runtime",
+        "environment": "vanilla HTTP client over Cliproxy sticky; TLS session per job",
         "ip": "Cliproxy sticky SID per job; explicit two-letter region; rebuild from stored SID",
-        "behaviour": "right-skewed register spacing; keepalive console open without burst checkout",
+        "behaviour": "right-skewed register spacing; HTTP keepalive against console without burst checkout",
     },
 }
 

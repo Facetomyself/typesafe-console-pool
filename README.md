@@ -4,17 +4,17 @@
 
 仓库：<https://github.com/Facetomyself/typesafe-console-pool>
 
-浏览器自动化单次脚本在 [typesafe-console](https://github.com/Facetomyself/typesafe-console)；HTTP 协议还原在 [typesafe-console-protocol](https://github.com/Facetomyself/typesafe-console-protocol)。本仓把注册做成可排队的控制面，默认走 automation 后端。
+HTTP 协议还原在 [typesafe-console-protocol](https://github.com/Facetomyself/typesafe-console-protocol)。本仓维护号池：邮箱入库、Cliproxy sticky、注册/保号队列、Linux 采集脚本，以及 FastAPI 控制面。默认后端是 `protocol`（调用协议仓的 vanilla HTTP）。
 
 ## 范围
 
 | 项 | 说明 |
 |----|------|
 | 发布面 | FastAPI 号池（邮箱导入入库、健康检查、Cliproxy lease、注册/保号队列、账号 checkout） |
-| 默认注册后端 | `automation`：ruyipage Firefox 151，启动时注入 Cliproxy sticky URL |
-| 保号 | 同一账号 profile + 同一地区 sticky 再打开 console；到期由 `keepalive_due_at` 入队 |
-| 风控账本 | 本地参数（间隔、日上限、邮箱冷却、sticky）；分数是本机记账，不是挑战绕过声明 |
-| 协议后端 | `protocol`：当前固定 `register_blocked` / keepalive blocked，等协议仓冻请求形状后再接 |
+| 默认注册后端 | `protocol`：Cliproxy sticky 上的 vanilla HTTP 注册/保号 |
+| 保号 | 同一地区 sticky + 已绑定邮箱，按 `keepalive_due_at` 用 HTTP 再访问 console；健康标准是 System One ping 返回 `answers` |
+| 风控账本 | 本地参数（间隔、日上限、邮箱冷却、sticky）；分数是本机记账 |
+| 协议状态 | 调用已发布的 `typesafe-console-protocol`：`register_over_http` / `keepalive_over_http` / `prove_usable` |
 | 登录方式 | 邮箱一次性验证码（`Email me a code instead`） |
 | 邮件确认 | 最小 IMAP XOAUTH2 轮询（INBOX，必要时 Junk） |
 | 注册结果 | 写入本地 JSON 文件，不写 `.env` |
@@ -52,7 +52,7 @@ email----password----client_id----refresh_token
 - `sticky_minutes` 范围 1–120。
 - 入队时生成 SID 并落库；worker 按已存 SID **重建**代理 URL，不会另开一条 sticky。
 
-可选 `CLIPROXY_PRE_PROXY` 由配置读取，当前注册后端把 sticky URL 直接交给 Firefox `quick_start(proxy=...)`。
+可选 `CLIPROXY_PRE_PROXY` 由配置读取。协议客户端把 sticky URL 交给 HTTP 会话。
 
 ## 风控参数与保号
 
@@ -75,7 +75,7 @@ email----password----client_id----refresh_token
 保号方式：
 
 1. 注册成功后邮箱变为 `bound`，账号记下 `region` 与 `keepalive_due_at`。
-2. `POST /v1/jobs/keepalive` 对该账号开任务；worker 用 `account-{id}` profile 打开 console，已登录则结束，否则走同一套邮箱 OTP。
+2. `POST /v1/jobs/keepalive` 对该账号开 HTTP 保号任务，复用注册地区 sticky。
 3. `POST /v1/jobs/keepalive/due` 扫描到期账号批量入队。
 4. 失败把邮箱打成 `cooling`（已绑定则仍记 `bound` + `health=cooling`），token 失效记 `dead`。
 
@@ -98,10 +98,38 @@ OpenAPI：`http://127.0.0.1:8091/docs`。
 运行前确认：
 
 - Cliproxy `.env` 已配置且地区不是 Rand。
-- Firefox 路径为 `D:\reverse_ENV\tools\ruyipage\runtimes\151-proxy\firefox\firefox.exe`。
 - 本机已有四参数 `mailbox.txt`（已忽略，不进 Git）。
+- 同级目录有 [typesafe-console-protocol](https://github.com/Facetomyself/typesafe-console-protocol)，或设置 `TYPESAFE_PROTOCOL_ROOT`。缺失协议仓时注册任务会 `register_blocked`。
 
-首期 `queue_workers=1`。本机 `data/config.json` 可改监听端口、默认地区、sticky 时长与后端名，该文件已忽略。
+首期 `queue_workers=1`。本机 `data/config.json` 可改监听端口、默认地区、sticky 时长、协议仓路径与后端名，该文件已忽略。
+
+### Linux shell
+
+采集机 bash 入口在本仓 `scripts/`。注册实现仍调用协议仓的 `scripts/register.py`。默认相对本仓根：`mailbox.txt` 或 `data/mailbox.txt`，结果写 `data/accounts/acc-00N.json`，日志写 `logs/`。Cliproxy 需要时在仓库根放 `.env`（已忽略）。
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e .[dev]
+export TYPESAFE_PROTOCOL_ROOT=/path/to/typesafe-console-protocol
+"$TYPESAFE_PROTOCOL_ROOT/.venv/bin/pip" install -r "$TYPESAFE_PROTOCOL_ROOT/requirements.txt"
+chmod +x scripts/*.sh
+./scripts/register-one.sh 1
+./scripts/keepalive-one.sh 1
+TARGET=5 KEEPALIVE_SECONDS=14400 ./scripts/run-pool.sh
+```
+
+采集机覆盖路径示例：
+
+```bash
+export TYPESAFE_CONSOLE_ROOT=/srv/collectors/typesafe-console
+export TYPESAFE_PROTOCOL_ROOT=/srv/collectors/typesafe-console-protocol
+export TYPESAFE_PYTHON=$TYPESAFE_PROTOCOL_ROOT/.venv/bin/python
+export TYPESAFE_DATA_DIR=$TYPESAFE_CONSOLE_ROOT/data
+export TYPESAFE_LOG_DIR=$TYPESAFE_CONSOLE_ROOT/logs
+export TYPESAFE_ENV=$TYPESAFE_CONSOLE_ROOT/.env
+```
+
+`register-one.sh` / `keepalive-one.sh` 成功标准是 System One ping 返回 `answers`。cookie leftover 不算可用。
 
 ## HTTP API
 
@@ -151,7 +179,7 @@ OpenAPI：`http://127.0.0.1:8091/docs`。
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8091/v1/mailboxes/import -Method POST -ContentType "application/json" -Body '{"path":"D:\\path\\to\\mailbox.txt"}'
-Invoke-RestMethod http://127.0.0.1:8091/v1/jobs/register -Method POST -ContentType "application/json" -Body '{"region":"US","backend":"automation"}'
+Invoke-RestMethod http://127.0.0.1:8091/v1/jobs/register -Method POST -ContentType "application/json" -Body '{"region":"US","backend":"protocol"}'
 ```
 
 导出文件形状：
@@ -178,12 +206,16 @@ app/services/risk.py     默认策略与冷却计算
 app/services/cliproxy.py sticky lease / rebuild
 app/services/mailbox.py  四参数 txt
 app/services/otp.py      IMAP XOAUTH2 与探活
-app/backends/            automation / protocol / keepalive
+app/backends/            protocol（默认，调用协议仓）/ automation（遗留）
+scripts/lib.sh           Linux 路径与 Cliproxy 环境
+scripts/register-one.sh  单条邮箱注册
+scripts/keepalive-one.sh 单号保活
+scripts/run-pool.sh      注册到 TARGET 后循环保活
 tests/                   解析、代理约束、API
 LICENSE                  MIT
 ```
 
-Public 仓只跟踪说明、源码、测试、许可证和忽略规则。邮箱 txt、Cliproxy 凭证、refresh token、验证码、SQLite、secrets 和浏览器 profile 留在本机。
+Public 仓只跟踪说明、源码、测试、许可证和忽略规则。邮箱 txt、Cliproxy 凭证、refresh token、验证码、SQLite 和 secrets 留在本机。
 
 ## 测试
 
