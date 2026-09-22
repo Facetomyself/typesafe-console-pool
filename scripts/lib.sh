@@ -98,9 +98,28 @@ cliproxy_ready() {
 append_unique() {
   local file="$1"
   local value="$2"
-  if grep -qx "$value" "$file" 2>/dev/null; then
-    return 0
-  fi
-  echo "$value" >>"$file"
-  chmod 600 "$file" 2>/dev/null || true
+  local lock="${file}.lock"
+  (
+    flock 8
+    if grep -qx "$value" "$file" 2>/dev/null; then
+      exit 0
+    fi
+    echo "$value" >>"$file"
+    chmod 600 "$file" 2>/dev/null || true
+  ) 8>"$lock"
+}
+
+remove_value() {
+  local file="$1"
+  local value="$2"
+  local lock="${file}.lock"
+  [[ -f "$file" ]] || return 0
+  (
+    flock 8
+    local tmp
+    tmp="$(mktemp)"
+    grep -vx "$value" "$file" >"$tmp" || true
+    mv "$tmp" "$file"
+    chmod 600 "$file" 2>/dev/null || true
+  ) 8>"$lock"
 }

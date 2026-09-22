@@ -115,7 +115,7 @@ export TYPESAFE_PROTOCOL_ROOT=/path/to/typesafe-console-protocol
 chmod +x scripts/*.sh
 ./scripts/register-one.sh 1
 ./scripts/keepalive-one.sh 1
-TARGET=5 KEEPALIVE_SECONDS=14400 ./scripts/run-pool.sh
+TARGET=5 CONCURRENCY=20 KEEPALIVE_SECONDS=14400 ./scripts/run-pool.sh
 ```
 
 采集机覆盖路径示例：
