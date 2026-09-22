@@ -121,7 +121,7 @@ TARGET=5 KEEPALIVE_SECONDS=14400 ./scripts/run-pool.sh
 采集机覆盖路径示例：
 
 ```bash
-export TYPESAFE_CONSOLE_ROOT=/srv/collectors/typesafe-console
+export TYPESAFE_CONSOLE_ROOT=/srv/collectors/typesafe-console-pool
 export TYPESAFE_PROTOCOL_ROOT=/srv/collectors/typesafe-console-protocol
 export TYPESAFE_PYTHON=$TYPESAFE_PROTOCOL_ROOT/.venv/bin/python
 export TYPESAFE_DATA_DIR=$TYPESAFE_CONSOLE_ROOT/data
